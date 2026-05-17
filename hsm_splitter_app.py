@@ -217,22 +217,30 @@ def build_split_command(
     pad_start: float = 0.0, pad_end: float = 0.0
 ) -> List[str]:
     ffmpeg = get_ffmpeg_tool("ffmpeg")
+
+    # 하이브리드 seek: 입력 seek(빠름)으로 근처까지 이동 후
+    # 출력 seek(정밀)으로 정확한 위치를 잡아 VBR MP3에서도 정확하게 자름
+    PRE_SEEK_BUFFER = 5.0
+    pre_seek = max(0.0, start - PRE_SEEK_BUFFER)
+    fine_seek = start - pre_seek
+
     cmd = [
         ffmpeg,
         "-y",
         "-hide_banner",
         "-loglevel", "error",
-        "-ss", ffmpeg_time(start),
+        "-ss", ffmpeg_time(pre_seek),
+        "-i", str(mp3_path),
+        "-ss", ffmpeg_time(fine_seek),
     ]
     if end is not None and end > start:
         duration = max(0.0, end - start)
         cmd += ["-t", f"{duration:.3f}"]
-        
-    cmd += ["-i", str(mp3_path)]
-        
+
     af_filters = []
     if trim_silence:
-        af_filters.append(f"silenceremove=start_periods=1:start_threshold={silence_db}dB:stop_periods=1:stop_threshold={silence_db}dB")
+        # stop_periods 제거: 트랙 중간 무음 구간에서 오디오가 끊기는 버그 방지
+        af_filters.append(f"silenceremove=start_periods=1:start_threshold={silence_db}dB")
     if pad_start > 0:
         delay_ms = int(pad_start * 1000)
         af_filters.append(f"adelay=delays={delay_ms}:all=1")
