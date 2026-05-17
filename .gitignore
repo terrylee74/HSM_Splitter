@@ -1,0 +1,15 @@
+# FFmpeg binaries (too large for GitHub)
+ffmpeg.exe
+ffprobe.exe
+
+# PyInstaller build output
+build/
+dist/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime settings (per-user)
+hsm_splitter_settings.json
