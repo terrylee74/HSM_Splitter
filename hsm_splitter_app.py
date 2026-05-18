@@ -386,9 +386,13 @@ class HSMSplitterApp:
         list_scroll.pack(side="left", fill="y")
         self.listbox.configure(yscrollcommand=list_scroll.set)
 
+        self._listbox_default_bg = self.listbox.cget("background")
+
         if HAS_DND:
             self.listbox.drop_target_register(DND_FILES)
             self.listbox.dnd_bind("<<Drop>>", self._on_drop)
+            self.listbox.dnd_bind("<<DragEnter>>", self._on_drag_enter)
+            self.listbox.dnd_bind("<<DragLeave>>", self._on_drag_leave)
 
         btn_list = ttk.Frame(middle)
         btn_list.pack(fill="x", padx=8, pady=(0, 8))
@@ -399,6 +403,8 @@ class HSMSplitterApp:
         ttk.Button(btn_list, text="선택 삭제", command=self.delete_selected).pack(side="left", padx=2)
         ttk.Button(btn_list, text="전체 삭제", command=self.delete_all).pack(side="left", padx=2)
         ttk.Label(btn_list, textvariable=self.cue_preview_var, foreground="gray").pack(side="right", padx=8)
+
+        self._refresh_listbox()
 
         # 로그
         bottom = ttk.LabelFrame(self.root, text="처리 로그")
@@ -465,11 +471,18 @@ class HSMSplitterApp:
 
     # ───────────────────────── CUE 목록 관리 ─────────────────────────
 
+    _PLACEHOLDER = "여기에 .cue 파일을 드래그 해주세요"
+
     def _refresh_listbox(self):
         self.listbox.delete(0, "end")
-        for p in self.selected_cues:
-            self.listbox.insert("end", str(p))
+        if not self.selected_cues:
+            self.listbox.insert("end", self._PLACEHOLDER)
+            self.listbox.itemconfig(0, fg="gray")
+        else:
+            for p in self.selected_cues:
+                self.listbox.insert("end", str(p))
         self.cue_count_var.set(f"선택된 CUE: {len(self.selected_cues)}")
+        self.cue_preview_var.set("")
 
     def _on_close(self):
         save_settings({
@@ -544,7 +557,14 @@ class HSMSplitterApp:
         self.selected_cues.clear()
         self._refresh_listbox()
 
+    def _on_drag_enter(self, event):
+        self.listbox.configure(background="#cce8ff")
+
+    def _on_drag_leave(self, event):
+        self.listbox.configure(background=self._listbox_default_bg)
+
     def _on_drop(self, event):
+        self.listbox.configure(background=self._listbox_default_bg)
         files = self.listbox.tk.splitlist(event.data)
         existing = set(self.selected_cues)
         added = 0
@@ -562,7 +582,7 @@ class HSMSplitterApp:
 
     def _on_cue_select(self, event):
         selected = self.listbox.curselection()
-        if not selected:
+        if not selected or not self.selected_cues:
             self.cue_preview_var.set("")
             return
         cue_path = self.selected_cues[selected[0]]
