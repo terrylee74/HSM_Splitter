@@ -218,11 +218,12 @@ def build_split_command(
 ) -> List[str]:
     ffmpeg = get_ffmpeg_tool("ffmpeg")
 
-    # 하이브리드 seek: 입력 seek(빠름)으로 근처까지 이동 후
-    # 출력 seek(정밀)으로 정확한 위치를 잡아 VBR MP3에서도 정확하게 자름
+    # 입력 seek으로 빠르게 근처까지 이동 후
+    # atrim 필터로 샘플 단위 정밀 절단 → silenceremove가 이미 잘린 구간 안에서만 동작
+    # (-t를 출력 옵션으로 쓰면 silenceremove가 줄인 만큼 다음 트랙 오디오가 딸려 옴)
     PRE_SEEK_BUFFER = 5.0
     pre_seek = max(0.0, start - PRE_SEEK_BUFFER)
-    fine_seek = start - pre_seek
+    atrim_start = start - pre_seek
 
     cmd = [
         ffmpeg,
@@ -231,13 +232,15 @@ def build_split_command(
         "-loglevel", "error",
         "-ss", ffmpeg_time(pre_seek),
         "-i", str(mp3_path),
-        "-ss", ffmpeg_time(fine_seek),
     ]
-    if end is not None and end > start:
-        duration = max(0.0, end - start)
-        cmd += ["-t", f"{duration:.3f}"]
 
     af_filters = []
+    if end is not None and end > start:
+        af_filters.append(f"atrim=start={atrim_start:.3f}:end={atrim_start + (end - start):.3f}")
+    else:
+        af_filters.append(f"atrim=start={atrim_start:.3f}")
+    af_filters.append("asetpts=PTS-STARTPTS")
+
     if trim_silence:
         # stop_periods 제거: 트랙 중간 무음 구간에서 오디오가 끊기는 버그 방지
         af_filters.append(f"silenceremove=start_periods=1:start_threshold={silence_db}dB")
