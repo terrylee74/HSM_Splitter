@@ -23,6 +23,12 @@ try:
 except ImportError:
     HAS_SV_TTK = False
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
+
 TRACK_RE = re.compile(r"TRACK\s+(\d{2})\s+AUDIO", re.IGNORECASE)
 TITLE_RE = re.compile(r'TITLE\s+"(.*)"', re.IGNORECASE)
 INDEX_RE = re.compile(r"INDEX\s+01\s+(\d{2}):(\d{2}):(\d{2})", re.IGNORECASE)
@@ -277,6 +283,7 @@ class HSMSplitterApp:
         self._stop_event = threading.Event()
 
         self.cue_count_var = tk.StringVar(value="선택된 CUE: 0")
+        self.cue_preview_var = tk.StringVar(value="")
         self.output_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="준비됨")
 
@@ -373,10 +380,15 @@ class HSMSplitterApp:
 
         self.listbox = tk.Listbox(list_frame, height=8, selectmode="extended")
         self.listbox.pack(side="left", fill="both", expand=True)
+        self.listbox.bind("<<ListboxSelect>>", self._on_cue_select)
 
         list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
         list_scroll.pack(side="left", fill="y")
         self.listbox.configure(yscrollcommand=list_scroll.set)
+
+        if HAS_DND:
+            self.listbox.drop_target_register(DND_FILES)
+            self.listbox.dnd_bind("<<Drop>>", self._on_drop)
 
         btn_list = ttk.Frame(middle)
         btn_list.pack(fill="x", padx=8, pady=(0, 8))
@@ -386,6 +398,7 @@ class HSMSplitterApp:
         ttk.Button(btn_list, text="시간 정렬", command=self.sort_by_time).pack(side="left", padx=2)
         ttk.Button(btn_list, text="선택 삭제", command=self.delete_selected).pack(side="left", padx=2)
         ttk.Button(btn_list, text="전체 삭제", command=self.delete_all).pack(side="left", padx=2)
+        ttk.Label(btn_list, textvariable=self.cue_preview_var, foreground="gray").pack(side="right", padx=8)
 
         # 로그
         bottom = ttk.LabelFrame(self.root, text="처리 로그")
@@ -530,6 +543,42 @@ class HSMSplitterApp:
             return
         self.selected_cues.clear()
         self._refresh_listbox()
+
+    def _on_drop(self, event):
+        files = self.listbox.tk.splitlist(event.data)
+        existing = set(self.selected_cues)
+        added = 0
+        for f in files:
+            path = Path(f)
+            if path.suffix.lower() == ".cue" and path not in existing:
+                self.selected_cues.append(path)
+                existing.add(path)
+                added += 1
+        self._refresh_listbox()
+        if added > 0 and not self.output_var.get().strip():
+            default_out = self.selected_cues[0].parent / "split_output"
+            self.output_root = default_out
+            self.output_var.set(str(default_out))
+
+    def _on_cue_select(self, event):
+        selected = self.listbox.curselection()
+        if not selected:
+            self.cue_preview_var.set("")
+            return
+        cue_path = self.selected_cues[selected[0]]
+        try:
+            cue_data = parse_cue(cue_path)
+            output_count = sum(
+                1 for t in cue_data.tracks
+                if not (t.title and "skip" in t.title.lower())
+            )
+            skipped = len(cue_data.tracks) - output_count
+            text = f"→ 출력 {output_count}개"
+            if skipped:
+                text += f"  (skip {skipped}개 제외)"
+            self.cue_preview_var.set(text)
+        except Exception:
+            self.cue_preview_var.set("→ CUE 파싱 오류")
 
     def sort_by_name(self):
         if not self.selected_cues:
@@ -817,7 +866,17 @@ class HSMSplitterApp:
 
 
 def main():
-    if HAS_TTKBOOTSTRAP:
+    if HAS_DND:
+        root = TkinterDnD.Tk()
+        if HAS_TTKBOOTSTRAP:
+            tb.Style(theme="litera")
+        elif HAS_SV_TTK:
+            sv_ttk.set_theme("light")
+        else:
+            style = ttk.Style(root)
+            if "vista" in style.theme_names():
+                style.theme_use("vista")
+    elif HAS_TTKBOOTSTRAP:
         root = tb.Window(themename="litera")
     else:
         root = tk.Tk()
